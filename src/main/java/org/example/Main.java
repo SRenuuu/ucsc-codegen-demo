@@ -1,174 +1,433 @@
 package org.example;
 
-import org.objectweb.asm.AnnotationVisitor;
+import org.example.expr.Expr;
+import org.example.expr.FuncCall;
+import org.example.expr.IntLiteral;
+import org.example.expr.Var;
+import org.example.func.Func;
+import org.example.intOp.ArithmeticOp;
+import org.example.intOp.ComparisonOp;
+import org.example.intOp.IntOp;
+import org.example.stmt.IfStmt;
+import org.example.stmt.ReturnStmt;
+import org.example.stmt.Stmt;
 import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.RecordComponentVisitor;
+import org.objectweb.asm.Opcodes;
 
+import java.io.File;
 import java.io.FileOutputStream;
 
 import static org.objectweb.asm.ClassWriter.COMPUTE_MAXS;
 import static org.objectweb.asm.Opcodes.*;
 
-class IntOp extends Expr {
-    Expr left;
-    Expr right;
-    String op;
-    public IntOp(Expr left, Expr right, String op) {
-        this.left = left;
-        this.right = right;
-        this.op = op;
-    }
-}
-
-class Expr {
-}
-
-class Var extends Expr {
-    String name;
-
-    public Var(String name) {
-        this.name = name;
-    }
-}
-
-class Func {
-    public Func(String name, Var[] args, Stmt[] stmts) {
-        this.name = name;
-        this.args = args;
-        this.stmts = stmts;
-    }
-
-    public String name;
-    Var[] args;
-    Stmt[] stmts;
-
-}
-
-class Stmt {
-}
-
-class Return extends Stmt {
-    Expr expr;
-
-    public Return(Expr expr) {
-        this.expr = expr;
-    }
-}
-
 public class Main {
+    /**
+     * The main method that generates bytecode for a function and writes it to a class file with the function's name.
+     *
+     * @param args - Command-line arguments (not used in this context).
+     */
     public static void main(String[] args) {
-        Stmt[] stmt = new Stmt[]{
-                new Return(new IntOp(new IntOp(new Var("a"), new Var("b"), "+"), new Var("c"), "+"))
-        };
-        Func func = new Func("add", new Var[]{new Var("a"), new Var("b"), new Var("c")}, stmt);
 
-        byte[] bytes = codeGen(func);
+        // ======== FIBONACCI ========
+        // Create a Func object representing the function "fib" with its arguments and statements
+        Func fibFunc = new Func("fib", new Var[]{new Var("n")}, new Stmt[]{
+                new IfStmt(
+                        new ComparisonOp(new Var("n"), new IntLiteral(1), "<="),
+                        new Stmt[]{
+                                new ReturnStmt(new Var("n"))
+                        },
+                        new Stmt[]{
+                                new ReturnStmt(
+                                        new ArithmeticOp(
+                                                new FuncCall("fib", new Expr[]{new ArithmeticOp(new Var("n"), new IntLiteral(1), "-")}),
+                                                new FuncCall("fib", new Expr[]{new ArithmeticOp(new Var("n"), new IntLiteral(2), "-")}),
+                                                "+"
+                                        )
+                                )
+                        }
+                )
+        });
 
-        try {
-            FileOutputStream fos = new FileOutputStream(func.name + ".class");
-            fos.write(bytes);
-            fos.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+
+        // ======== FACTORIAL ========
+        // Create a Func object representing the function "fac" with its arguments and statements
+        Func facFunc = new Func("fac", new Var[]{new Var("n")}, new Stmt[]{
+                new IfStmt(
+                        new ComparisonOp(new Var("n"), new IntLiteral(1), "<="),
+                        new Stmt[]{
+                                new ReturnStmt(new IntLiteral(1))
+                        },
+                        new Stmt[]{
+                                new ReturnStmt(
+                                        new ArithmeticOp(
+                                                new Var("n"),
+                                                new FuncCall("fac", new Expr[]{new ArithmeticOp(new Var("n"), new IntLiteral(1), "-")}),
+                                                "*"
+                                        )
+                                )
+                        }
+                )
+        });
+
+        Func[] funcs = new Func[]{fibFunc, facFunc};
+
+        // create output folder if not exists
+        File dir = new File("outputs");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+
+        for (Func func : funcs) {
+            // Generate bytecode for the function
+            byte[] bytecode = codeGen(func);
+
+            // Write the bytecode to a class file
+            try (FileOutputStream fos = new FileOutputStream("outputs/" + func.getName() + ".class")) {
+                fos.write(bytecode);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
 
     }
 
+    /**
+     * Generates bytecode for a Java class that corresponds to a given function and returns as a byte array.
+     *
+     * @param func - The function to generate bytecode for.
+     * @return - A byte array that represents the generated bytecode.
+     */
     private static byte[] codeGen(Func func) {
+        // Create a ClassWriter object
+        // (COMPUTE_MAXS - automatically compute the maximum stack and local variable sizes for the generated methods)
         ClassWriter classWriter = new ClassWriter(COMPUTE_MAXS);
-        classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, func.name, null, "java/lang/Object", null);
+
+        // Visit the class (Java 17, class is public and extends the java/lang/Object superclass)
+        classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, func.getName(), null, "java/lang/Object", null);
+
+        // Generate bytecode for the constructor of the class
         genInit(classWriter);
+
+        // Generate bytecode for the function
         genFunc(func, classWriter);
+
+        // Generate bytecode for the main method of the class
         genFixedMain(func, classWriter);
+
+        // Finish defining the class
         classWriter.visitEnd();
+
+        // Return the bytecode for the class as a byte array
         return classWriter.toByteArray();
     }
 
+    /**
+     * Generates bytecode for the constructor of a Java class.
+     *
+     * @param classWriter - The ClassWriter object to generate the bytecode with.
+     */
     private static void genInit(ClassWriter classWriter) {
+        // Create a MethodVisitor for the method (public, takes no arguments, returns void)
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+
+        // Start defining the method's bytecode
         methodVisitor.visitCode();
+
+        // Load 'this' (reference of current object - index 0) onto the stack
         methodVisitor.visitVarInsn(ALOAD, 0);
+
+        // Invoke the constructor of the super class (java/lang/Object)
         methodVisitor.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+
+        // Return from the constructor
         methodVisitor.visitInsn(RETURN);
+
+        // Define the maximum stack size and number of local variables
         methodVisitor.visitMaxs(1, 1);
+
+        // Finish defining the method's bytecode
         methodVisitor.visitEnd();
     }
 
+    /**
+     * Generates bytecode for the main method of a Java class.
+     *
+     * @param func        - The function to generate bytecode for.
+     * @param classWriter - The ClassWriter object to generate the bytecode with.
+     */
     private static void genFixedMain(Func func, ClassWriter classWriter) {
+        // Create a MethodVisitor for the method (public, static, takes list of string arguments, returns void)
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, "main", "([Ljava/lang/String;)V", null, null);
+
+        // Start defining the method's bytecode
         methodVisitor.visitCode();
-        for (int i = 0; i < func.args.length ; i++) {
+
+        // Parse each argument in the function (STDIN arguments)
+        for (int i = 0; i < func.getArgs().length; i++) {
             parseArg(methodVisitor, i, i + 1);
         }
+
+        // Access the out field of the System class (to print output to console)
         methodVisitor.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
-        for (int i = 0; i < func.args.length ; i++) {
+
+        // Load each local variable onto the stack (local variables stored by parseArg)
+        for (int i = 0; i < func.getArgs().length; i++) {
             methodVisitor.visitVarInsn(ILOAD, i + 1);
         }
-        methodVisitor.visitMethodInsn(INVOKESTATIC, func.name, func.name, genSig(func.args.length), false);
+
+        // Invoke the static method named func.name with the signature genSig(func.args.length)
+        methodVisitor.visitMethodInsn(INVOKESTATIC, func.getName(), func.getName(), genSig(func.getArgs().length), false);
+
+        // Print the result of the function call to the console
         methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(I)V", false);
+
+        // Return from the main method
         methodVisitor.visitInsn(RETURN);
+
+        // Define the maximum stack size and number of local variables
         methodVisitor.visitMaxs(0, 0);
+
+        // Finish defining the method's bytecode
         methodVisitor.visitEnd();
     }
 
+    /**
+     * Parses a string argument, converts it to an integer, and stores it in a local variable.
+     *
+     * @param methodVisitor - The MethodVisitor object for bytecode generation.
+     * @param argIndex      - The index of the argument to extract from the array.
+     * @param varIndex      - The index of the local variable to store the parsed integer.
+     */
     private static void parseArg(MethodVisitor methodVisitor, int argIndex, int varIndex) {
+        // Load a reference from the current object (this) onto the stack
         methodVisitor.visitVarInsn(ALOAD, 0);
+
+        // Push a single-byte signed integer constant (argIndex) onto the stack
         methodVisitor.visitIntInsn(BIPUSH, argIndex);
+
+        // Perform an array load operation, extracting an element from an array
+        // It pops an array reference and an index from the stack and pushes the element at the specified index
+        // onto the stack
         methodVisitor.visitInsn(AALOAD);
+
+        // Invoke the static method Integer.parseInt(String) to parse the string argument
+        // It pops a string from the stack and pushes the result int of the parseInt operation onto the stack
         methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "parseInt", "(Ljava/lang/String;)I", false);
+
+        // Store the integer value from the stack into a local variable at the index specified by varIndex
         methodVisitor.visitVarInsn(ISTORE, varIndex);
     }
 
+    /**
+     * Generates bytecode for a static method that represents a function.
+     *
+     * @param func        - The function to generate bytecode for.
+     * @param classWriter - The ClassWriter used for bytecode generation.
+     */
     private static void genFunc(Func func, ClassWriter classWriter) {
-        MethodVisitor methodVisitor;
-        methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, func.name, genSig(func.args.length), null, null);
+        // Create a MethodVisitor for the method (public, static, takes signature from genSig())
+        MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, func.getName(), genSig(func.getArgs().length), null, null);
+
+        // Start generating bytecode for the method.
         methodVisitor.visitCode();
-        for (Stmt s : func.stmts) {
-            if (s instanceof Return) {
-                genReturn((Return) s, methodVisitor, func.args);
+
+        // Loop through the statements in the function
+        for (Stmt s : func.getStmts()) {
+            // Check if the statement is a return statement
+            if (s instanceof ReturnStmt) {
+                // Generate bytecode for the return statement
+                genReturnStmt((ReturnStmt) s, methodVisitor, func.getArgs());
+            } else if (s instanceof IfStmt) {
+                // Generate bytecode for the if statement
+                genIfStmt((IfStmt) s, methodVisitor, func.getArgs());
             }
         }
-        methodVisitor.visitMaxs(0,0);
+
+        // Set maximum stack and local variable sizes (0,0)
+        methodVisitor.visitMaxs(0, 0);
+
+        // Finish generating bytecode for the method
         methodVisitor.visitEnd();
     }
 
-    private static void genReturn(Return s, MethodVisitor methodVisitor, Var[] args) {
-        genExpr(s.expr, methodVisitor, args);
+    /**
+     * Generates bytecode for a return statement within a function.
+     *
+     * @param stmt          - The ReturnStmt representing the return statement.
+     * @param methodVisitor - The MethodVisitor used for bytecode generation.
+     * @param args          - The array of function arguments.
+     */
+    private static void genReturnStmt(ReturnStmt stmt, MethodVisitor methodVisitor, Var[] args) {
+        // Generate bytecode for the expression associated with the return statement
+        genExpr(stmt.getExpr(), methodVisitor, args);
+
+        // Add the bytecode instruction for returning an integer value from a method
         methodVisitor.visitInsn(IRETURN);
     }
 
+    /**
+     * Generates bytecode for an if statement within a function.
+     *
+     * @param ifStmt        - The IfStmt representing the if statement.
+     * @param methodVisitor - The MethodVisitor used for bytecode generation.
+     * @param args          - The array of function arguments.
+     */
+    private static void genIfStmt(IfStmt ifStmt, MethodVisitor methodVisitor, Var[] args) {
+        // Generate bytecode for the expression associated with the return statement
+        genExpr(ifStmt.getCond(), methodVisitor, args);
+
+
+//        Label label1 = new Label();
+//
+//        // When this instruction is executed, it will jump to the instruction at label1
+//        // if the top value on the operand stack is not equal to zero.
+//        methodVisitor.visitJumpInsn(IFNE, label1);
+//
+//        Label label2 = new Label();
+//
+//        // Instruct the method visitor to visit a label instruction with label2.
+//        methodVisitor.visitLabel(label2);
+
+        // Start processing the if-then statements
+        for (Stmt stmt : ifStmt.getThenStmts()) {
+            if (stmt instanceof ReturnStmt) {
+                genReturnStmt((ReturnStmt) stmt, methodVisitor, args);
+            }
+        }
+
+        methodVisitor.visitLabel(((ComparisonOp) ifStmt.getCond()).getLabel());
+        methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+
+
+        for (Stmt stmt : ifStmt.getElseStmts()) {
+            if (stmt instanceof ReturnStmt) {
+                genReturnStmt((ReturnStmt) stmt, methodVisitor, args);
+            }
+        }
+
+        methodVisitor.visitMaxs(2, 1);
+        methodVisitor.visitEnd();
+    }
+
+    /**
+     * Generates bytecode for an expression within a function.
+     *
+     * @param expr          - The Expr representing the expression.
+     * @param methodVisitor - The MethodVisitor used for bytecode generation.
+     * @param args          - The array of function arguments.
+     */
     private static void genExpr(Expr expr, MethodVisitor methodVisitor, Var[] args) {
+        // Check if the expression is an integer operation
         if (expr instanceof IntOp) {
-            genExpr(((IntOp) expr).left, methodVisitor, args);
-            genExpr(((IntOp) expr).right, methodVisitor, args);
-            if (((IntOp) expr).op.equals("+")) {
-                methodVisitor.visitInsn(IADD);
-            } else if (((IntOp) expr).op.equals("-")) {
-                methodVisitor.visitInsn(ISUB);
+            if (expr instanceof ArithmeticOp) {
+                // Generate bytecode for the left and right operands of the operation
+                genExpr(((ArithmeticOp) expr).getLeft(), methodVisitor, args);
+                genExpr(((ArithmeticOp) expr).getRight(), methodVisitor, args);
+
+                // Check the operator and generate the corresponding bytecode.
+                switch (((ArithmeticOp) expr).getOp()) {
+                    case "+" -> methodVisitor.visitInsn(IADD);
+                    case "-" -> methodVisitor.visitInsn(ISUB);
+                    case "*" -> methodVisitor.visitInsn(IMUL);
+                    case "/" -> methodVisitor.visitInsn(IDIV);
+                }
+            } else if (expr instanceof ComparisonOp) {
+                // Generate bytecode for the left and right operands of the operation
+                genExpr(((ComparisonOp) expr).getLeft(), methodVisitor, args);
+                genExpr(((ComparisonOp) expr).getRight(), methodVisitor, args);
+
+                // Create a label for the comparison instruction
+                Label label0 = new Label();
+
+                // Set the label for the comparison instruction in the expression
+                ((ComparisonOp) expr).setLabel(label0);
+
+                // Check the operator and generate the corresponding bytecode.
+                switch (((ComparisonOp) expr).getOp()) {
+                    case "<" -> methodVisitor.visitJumpInsn(IF_ICMPGE, ((ComparisonOp) expr).getLabel());
+                    case ">" -> methodVisitor.visitJumpInsn(IF_ICMPLE, ((ComparisonOp) expr).getLabel());
+
+                    // Compare the value of the function argument to 1 and jump to 'label0' if it is greater
+                    case "<=" -> methodVisitor.visitJumpInsn(IF_ICMPGT, ((ComparisonOp) expr).getLabel());
+
+                    case ">=" -> methodVisitor.visitJumpInsn(IF_ICMPLT, ((ComparisonOp) expr).getLabel());
+                    case "==" -> methodVisitor.visitJumpInsn(IF_ICMPNE, ((ComparisonOp) expr).getLabel());
+                    case "!=" -> methodVisitor.visitJumpInsn(IF_ICMPEQ, ((ComparisonOp) expr).getLabel());
+                }
             }
         } else if (expr instanceof Var) {
+            // The expression is a variable; generate bytecode for loading its value
             methodVisitor.visitVarInsn(ILOAD, getIndex((Var) expr, args));
+        } else if (expr instanceof IntLiteral) {
+            // The expression is an integer literal; generate bytecode for pushing a single-byte integer constant
+            // onto the operand stack
+            methodVisitor.visitIntInsn(BIPUSH, ((IntLiteral) expr).getValue());
+        } else if (expr instanceof FuncCall) {
+            // The expression is a function call; generate bytecode for the function call
+            genFuncCall((FuncCall) expr, methodVisitor, args);
         }
     }
 
+    /**
+     * Generates bytecode for a function call within a function.
+     *
+     * @param funcCall      - The FuncCall representing the function call.
+     * @param methodVisitor - The MethodVisitor used for bytecode generation.
+     * @param args          - The array of function arguments.
+     */
+    private static void genFuncCall(FuncCall funcCall, MethodVisitor methodVisitor, Var[] args) {
+        // Generate bytecode for each of the function call's arguments
+        for (Expr arg : funcCall.getArgs()) {
+            genExpr(arg, methodVisitor, args);
+        }
+
+        // Generate bytecode for calling the function
+        methodVisitor.visitMethodInsn(INVOKESTATIC, funcCall.getName(), funcCall.getName(), genSig(funcCall.getArgs().length), false);
+    }
+
+
+    /**
+     * Get the index of a variable within an array of function arguments, or -1 if not found.
+     *
+     * @param v    - The Var representing the variable to search for.
+     * @param args - The array of function arguments to search within.
+     * @return The index of the variable within the array, or -1 if not found.
+     */
     private static int getIndex(Var v, Var[] args) {
+        // Iterate through the array of function arguments
         for (int i = 0; i < args.length; i++) {
-            if (args[i].name.equals((v).name)) {
+            // Check if the current argument's name matches the variable's name
+            if (args[i].getName().equals((v).getName())) {
+                // If a match is found, return the index
                 return i;
             }
         }
+        // If no match is found, return -1
         return -1;
     }
 
+    /**
+     * Generates a method descriptor signature for a method with 'length' integer arguments.
+     *
+     * @param length - The number of integer arguments in the method signature.
+     * @return - A method descriptor signature string.
+     */
     private static String genSig(int length) {
+        // Create a StringBuilder to build the method descriptor.
         StringBuilder sb = new StringBuilder();
+
+        // Append the opening parenthesis for the argument list.
         sb.append("(");
-        for (int i = 0; i < length; i++) {
-            sb.append("I");
-        }
+
+        // Generate 'length' 'I' characters representing integer arguments.
+        sb.append("I".repeat(Math.max(0, length)));
+
+        // Append the closing parenthesis for the argument list and the return type 'I'.
         sb.append(")I");
+
+        // Convert the StringBuilder to a String and return it as the method descriptor.
         return sb.toString();
     }
 

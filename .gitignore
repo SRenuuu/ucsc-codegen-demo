@@ -1,0 +1,47 @@
+# Gradle files
+.gradle/
+build/
+
+# IDE files (e.g., IntelliJ, Eclipse)
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+
+# Logs
+*.log
+
+# Build output
+build/
+
+# Dependency cache
+.gradle/
+
+# Local configuration file (gradle.properties)
+gradle.properties
+
+# Compiled class files
+*.class
+
+# Package files
+*.jar
+*.war
+*.ear
+
+# Generated Gradle wrapper files
+gradle-wrapper.jar
+gradle-wrapper.properties
+
+# Mac OS files
+.DS_Store
+
+# Windows files
+Thumbs.db
+
+# Eclipse project files
+.classpath
+.project
+.settings/
+bin/
