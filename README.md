@@ -2,7 +2,8 @@
 ## Customer parser and compiler for JVM built from scratch using ASM and Java
 ### Inspired from the Ballerina Session Conducted at UCSC by WSO2
 
-Generic implementation which works with any input code given in the new language format (using Func, Stmt, Expr classes)  
+Generic implementation which works with any input code given in the new language format (using Func, Stmt, Expr classes)
+<br>
 Samples: Factorial and Fibonacci
 
 ```
